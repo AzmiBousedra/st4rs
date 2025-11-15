@@ -62,11 +62,93 @@ function snapToGrid(
   return [x, y, z]
 }
 
+// simple ISS-like home base at the origin
+function HomeShip() {
+  return (
+    <group position={[0, 0, 0]}>
+      {/* main body bar */}
+      <mesh>
+        <boxGeometry args={[2.8, 1.2, 1.2]} />
+        <meshStandardMaterial
+          color="#cfd8ff"
+          metalness={0.7}
+          roughness={0.25}
+        />
+      </mesh>
+
+      {/* bright central core */}
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[1.2, 0.9, 0.9]} />
+        <meshStandardMaterial
+          color="#ffffff"
+          emissive="#8fd3ff"
+          emissiveIntensity={1.4}
+          metalness={0.4}
+          roughness={0.2}
+        />
+      </mesh>
+
+      {/* solar panel left */}
+      <mesh position={[-2.2, 0, 0]}>
+        <boxGeometry args={[2.6, 0.2, 1.4]} />
+        <meshStandardMaterial
+          color="#2b3f74"
+          emissive="#364f8f"
+          emissiveIntensity={0.7}
+          metalness={0.2}
+          roughness={0.3}
+        />
+      </mesh>
+
+      {/* solar panel right */}
+      <mesh position={[2.2, 0, 0]}>
+        <boxGeometry args={[2.6, 0.2, 1.4]} />
+        <meshStandardMaterial
+          color="#2b3f74"
+          emissive="#364f8f"
+          emissiveIntensity={0.7}
+          metalness={0.2}
+          roughness={0.3}
+        />
+      </mesh>
+
+      {/* front docking tube */}
+      <mesh position={[0, 0, 1.4]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.25, 0.25, 1.2, 16]} />
+        <meshStandardMaterial
+          color="#dfe4ff"
+          metalness={0.6}
+          roughness={0.3}
+        />
+      </mesh>
+
+      {/* back tube */}
+      <mesh position={[0, 0, -1.4]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.25, 0.25, 1.2, 16]} />
+        <meshStandardMaterial
+          color="#dfe4ff"
+          metalness={0.6}
+          roughness={0.3}
+        />
+      </mesh>
+
+      {/* small nav lights */}
+      <mesh position={[0, 0.7, 0]}>
+        <sphereGeometry args={[0.12, 16, 16]} />
+        <meshBasicMaterial color="#7df3ff" />
+      </mesh>
+      <mesh position={[0, -0.7, 0]}>
+        <sphereGeometry args={[0.12, 16, 16]} />
+        <meshBasicMaterial color="#ffb37d" />
+      </mesh>
+    </group>
+  )
+}
+
 export function ConstellationCanvas() {
   const [inventory, setInventory] = useState<InventoryStar[]>(() => {
     const items: InventoryStar[] = []
 
-    // helper to create a star with attributes
     const makeStar = (rarity: StarRarity, index: number): InventoryStar => {
       const cfg = RARITY_VISUAL_CONFIG[rarity]
       const temp = Math.round(
@@ -105,7 +187,6 @@ export function ConstellationCanvas() {
 
   const handleToggleEdit = () => {
     setEditMode((prev) => !prev)
-    // do not clear selectedStar here, we still want to be able to focus it in view mode
     if (editMode) {
       setSelectedInventoryId(null)
     }
@@ -137,7 +218,6 @@ export function ConstellationCanvas() {
     }
   }
 
-  // click on background plane in edit mode to place or move the selected inventory star
   const handlePlaneClick = (pos: Vector3) => {
     if (!editMode || !selectedInventoryId) return
 
@@ -161,7 +241,6 @@ export function ConstellationCanvas() {
     setSelectedStar(updatedStar)
   }
 
-  // click on a star to focus it and show info
   const handlePlacedStarClick = (id: string) => {
     const star = inventory.find((s) => s.id === id)
     if (!star || !star.position) return
@@ -191,7 +270,14 @@ export function ConstellationCanvas() {
       >
         <color attach="background" args={["black"]} />
 
+        {/* lights so the station is visible */}
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[10, 15, 10]} intensity={1.4} />
+
         <Suspense fallback={null}>
+          {/* home base at origin */}
+          <HomeShip />
+
           {/* invisible plane where we drop stars */}
           <PlacementPlane
             editMode={editMode}

@@ -1,11 +1,10 @@
 "use client"
 
 import { useMemo, useRef } from "react"
-import { AdditiveBlending, Color, Mesh } from "three"
+import { Color, Mesh } from "three"
 import { useFrame } from "@react-three/fiber"
 import starsJson from "../data/stars.json"
 
-// what the UI receives when a star is selected
 export type StarSelectionInfo = {
   position: [number, number, number]
   name: string
@@ -29,12 +28,13 @@ type StarData = {
   position: [number, number, number]
   meshScale: number
   color: string
-  glowIntensity: number
   attributes: StarAttributes
 }
 
 type StarFieldProps = {
   onStarSelect?: (info: StarSelectionInfo) => void
+  // used for desaturation logic
+  selectedName?: string | null
 }
 
 type CatalogStar = {
@@ -49,12 +49,11 @@ type CatalogStar = {
   z: number
 }
 
-// real-ish main sequence ranges per spectral class
 const SPECTRAL_CONFIG: Record<
   SpectralClass,
   {
     tempRange: [number, number]
-    radiusRangeSun: [number, number] // radius in units of Sun radius
+    radiusRangeSun: [number, number]
     color: string
     label: string
   }
@@ -62,43 +61,43 @@ const SPECTRAL_CONFIG: Record<
   O: {
     tempRange: [30000, 50000],
     radiusRangeSun: [6, 10],
-    color: "#9ad6ff",
+    color: "#7dd7ff",
     label: "O-type blue star",
   },
   B: {
     tempRange: [10000, 30000],
     radiusRangeSun: [2, 6],
-    color: "#a9c8ff",
+    color: "#8fb9ff",
     label: "B-type blue white star",
   },
   A: {
     tempRange: [7500, 10000],
     radiusRangeSun: [1.4, 2.0],
-    color: "#d5e1ff",
+    color: "#e0e6ff",
     label: "A-type white star",
   },
   F: {
     tempRange: [6000, 7500],
     radiusRangeSun: [1.15, 1.4],
-    color: "#fff7ea",
+    color: "#ffe9c2",
     label: "F-type yellow white star",
   },
   G: {
     tempRange: [5200, 6000],
     radiusRangeSun: [0.9, 1.15],
-    color: "#ffe7b3",
+    color: "#ffd27a",
     label: "G-type yellow star",
   },
   K: {
     tempRange: [3700, 5200],
     radiusRangeSun: [0.7, 0.9],
-    color: "#ffb874",
+    color: "#ff9c4a",
     label: "K-type orange star",
   },
   M: {
     tempRange: [2400, 3700],
     radiusRangeSun: [0.1, 0.7],
-    color: "#ff9657",
+    color: "#ff6b3b",
     label: "M-type red dwarf",
   },
 }
@@ -107,7 +106,6 @@ function randInRange(min: number, max: number) {
   return min + Math.random() * (max - min)
 }
 
-// pick spectral class from catalog spect string or fallback based on magnitude
 function inferSpectralClass(star: CatalogStar): SpectralClass {
   const raw = (star.spect || "").trim()
   if (raw.length > 0) {
@@ -117,7 +115,6 @@ function inferSpectralClass(star: CatalogStar): SpectralClass {
     }
   }
 
-  // fallback: rough mapping from magnitude if spect is missing
   const m = star.mag
   if (m <= 0.0) return "B"
   if (m <= 1.5) return "A"
@@ -127,19 +124,37 @@ function inferSpectralClass(star: CatalogStar): SpectralClass {
   return "M"
 }
 
-export function StarField({ onStarSelect }: StarFieldProps) {
+// remap catalog coordinates into visible shell
+function remapPosition(
+  x: number,
+  y: number,
+  z: number
+): [number, number, number] {
+  const rOrig = Math.sqrt(x * x + y * y + z * z) || 1e-6
+  const VIS_MIN = 20
+  const VIS_MAX = 85
+  const targetR = randInRange(VIS_MIN, VIS_MAX)
+  const k = targetR / rOrig
+  return [x * k, y * k, z * k]
+}
+
+export function StarField({
+  onStarSelect,
+  selectedName,
+}: StarFieldProps) {
   const stars = useMemo<StarData[]>(() => {
     const raw = starsJson as CatalogStar[]
 
-    // you can limit count here if too heavy:
-    // const subset = raw.slice(0, 2000)
-    const subset = raw
+    const sorted = [...raw].sort(
+      (a, b) => a.distParsec - b.distParsec
+    )
+    const subset = sorted.slice(0, 2500)
 
-    return subset.map((s) => {
+    return subset.map((s, index) => {
       const cls = inferSpectralClass(s)
       const cfg = SPECTRAL_CONFIG[cls]
 
-      const temp = Math.round(
+      const temperature = Math.round(
         randInRange(cfg.tempRange[0], cfg.tempRange[1])
       )
 
@@ -148,20 +163,26 @@ export function StarField({ onStarSelect }: StarFieldProps) {
         cfg.radiusRangeSun[1]
       )
 
-      // scale mesh size from physical radius
-      const SCALE = 0.05
+      const SCALE = 0.09
       const meshScale = radiusSun * SCALE
 
+      const [nx, ny, nz] = remapPosition(s.x, s.y, s.z)
+
+      // each unnamed star gets a unique label
+      const displayName =
+        s.name && s.name.trim().length > 0
+          ? s.name
+          : `Unnamed #${index}`
+
       return {
-        position: [s.x, s.y, s.z] as [number, number, number],
+        position: [nx, ny, nz] as [number, number, number],
         meshScale,
         color: cfg.color,
-        glowIntensity: 0.3 + Math.random() * 0.6,
         attributes: {
-          name: s.name || "Unnamed star",
+          name: displayName,
           status: "unclaimed",
           spectralClass: cls,
-          temperature: temp,
+          temperature,
           radiusSun,
         },
       }
@@ -176,6 +197,7 @@ export function StarField({ onStarSelect }: StarFieldProps) {
           index={index}
           data={star}
           onSelect={onStarSelect}
+          selectedName={selectedName}
         />
       ))}
     </group>
@@ -186,14 +208,23 @@ type StarProps = {
   data: StarData
   index: number
   onSelect?: (info: StarSelectionInfo) => void
+  selectedName?: string | null
 }
 
-function Star({ data, index, onSelect }: StarProps) {
+function Star({
+  data,
+  index,
+  onSelect,
+  selectedName,
+}: StarProps) {
   const coreRef = useRef<Mesh | null>(null)
-  const glowRef = useRef<Mesh | null>(null)
 
   const tint = new Color(data.color)
   const white = new Color("#ffffff")
+  const grey = new Color("#555555")
+
+  // 0 = fully grey, 1 = fully colorful
+  const focusMixRef = useRef(1)
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime()
@@ -207,35 +238,41 @@ function Star({ data, index, onSelect }: StarProps) {
     const z =
       bz + Math.sin(t * speed * 0.8 + index * 0.4) * wobble * 0.6
 
-    if (coreRef.current) coreRef.current.position.set(x, y, z)
-    if (glowRef.current) glowRef.current.position.set(x, y, z)
+    if (coreRef.current) {
+      coreRef.current.position.set(x, y, z)
+    }
 
     const flicker =
-      1.1 +
-      Math.sin(t * 3.2 + index * 0.4) * 0.15 +
-      Math.cos(t * 2.1 + index * 0.3) * 0.1
+      1.3 +
+      Math.sin(t * 3.0 + index * 0.4) * 0.25 +
+      Math.cos(t * 2.1 + index * 0.3) * 0.18
 
-    const color = white
+    const hasSelection = !!selectedName
+    const isSelected =
+      hasSelection &&
+      data.attributes.name === selectedName
+
+    // no selection: all colorful
+    // selection: only the selected one colorful, others grey
+    const shouldBeColorful = !hasSelection || isSelected
+
+    const targetMix = shouldBeColorful ? 1 : 0
+    focusMixRef.current +=
+      (targetMix - focusMixRef.current) * 0.12
+    const mix = focusMixRef.current
+
+    const colorfulBase = white
       .clone()
-      .lerp(tint, 0.6)
-      .multiplyScalar(flicker)
+      .lerp(tint, 0.85)
+      .multiplyScalar(flicker * 1.9)
+
+    const greyBase = grey.clone().multiplyScalar(flicker * 1.1)
+
+    const finalColor = greyBase.lerp(colorfulBase, mix)
 
     if (coreRef.current) {
       const mat = coreRef.current.material as any
-      if (mat && mat.color) mat.color.copy(color)
-    }
-
-    if (glowRef.current) {
-      const mat = glowRef.current.material as any
-      if (mat && mat.color) {
-        mat.color.copy(color)
-        mat.opacity = data.glowIntensity * 0.55
-      }
-      const baseScale = data.meshScale * 4.5
-      const pulse =
-        1 +
-        Math.sin(t * 1.6 + index * 0.5) * 0.25
-      glowRef.current.scale.setScalar(baseScale * pulse)
+      if (mat && mat.color) mat.color.copy(finalColor)
     }
   })
 
@@ -255,27 +292,15 @@ function Star({ data, index, onSelect }: StarProps) {
   }
 
   return (
-    <>
-      {/* core */}
-      <mesh
-        ref={coreRef}
-        position={data.position}
-        scale={data.meshScale}
-        onClick={handleClick}
-      >
-        <sphereGeometry args={[1, 16, 16]} />
-        <meshBasicMaterial color={"white"} />
-      </mesh>
-
-      {/* glow */}
-      <mesh ref={glowRef} position={data.position}>
-        <sphereGeometry args={[1, 16, 16]} />
-        <meshBasicMaterial
-          transparent
-          blending={AdditiveBlending}
-          depthWrite={false}
-        />
-      </mesh>
-    </>
+    <mesh
+      ref={coreRef}
+      position={data.position}
+      scale={data.meshScale}
+      onClick={handleClick}
+    >
+      {/* single sphere, bloom does the glow */}
+      <sphereGeometry args={[1, 32, 32]} />
+      <meshBasicMaterial color={"white"} toneMapped />
+    </mesh>
   )
 }
